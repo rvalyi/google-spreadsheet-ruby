@@ -160,6 +160,7 @@ module GoogleSpreadsheet
           else
             @proxy = Net::HTTP
           end
+          @row_page_size = 100
         end
 
         # Authenticates with given +mail+ and +password+, and updates current session object
@@ -178,6 +179,7 @@ module GoogleSpreadsheet
 
         # Authentication tokens.
         attr_reader(:auth_tokens)
+        attr_accessor(:row_page_size)
 
         # Authentication token.
         def auth_token(auth = :wise)
@@ -693,6 +695,7 @@ module GoogleSpreadsheet
           @cells = nil
           @input_values = nil
           @modified = Set.new()
+          @row_loaded_pages = []
         end
 
         # URL of cell-based feed of the worksheet.
@@ -726,6 +729,7 @@ module GoogleSpreadsheet
 
         # Returns content of the cell as String. Top-left cell is [1, 1].
         def [](row, col)
+          reload(row, col) if (!@row_loaded_pages.index((row - 1) / @session.row_page_size) || !@cells)
           return self.cells[[row, col]] || ""
         end
 
@@ -738,6 +742,7 @@ module GoogleSpreadsheet
         #   worksheet[1, 3] = "=A1+B1"
         def []=(row, col, value)
           reload() if !@cells
+          @row_loaded_pages << (row - 1) / @session.row_page_size
           @cells[[row, col]] = value
           @input_values[[row, col]] = value
           @modified.add([row, col])
@@ -750,66 +755,66 @@ module GoogleSpreadsheet
         # If user input "=A1+B1" to cell [1, 3], worksheet[1, 3] is "3" for example and
         # worksheet.input_value(1, 3) is "=RC[-2]+RC[-1]".
         def input_value(row, col)
-          reload() if !@cells
+          reload(row, col) if (!@row_loaded_pages.index((row - 1) / @session.row_page_size) || !@cells)
           return @input_values[[row, col]] || ""
         end
 
         # Row number of the bottom-most non-empty row.
         def num_rows
-          reload() if !@cells
+          reload(1, false) if !@cells
           return @cells.keys.map(){ |r, c| r }.max || 0
         end
 
         # Column number of the right-most non-empty column.
         def num_cols
-          reload() if !@cells
+          reload(1, false) if !@cells
           return @cells.keys.map(){ |r, c| c }.max || 0
         end
 
         # Number of rows including empty rows.
         def max_rows
-          reload() if !@cells
+          reload(1, false) if !@cells
           return @max_rows
         end
 
         # Updates number of rows.
         # Note that update is not sent to the server until you call save().
         def max_rows=(rows)
-          reload() if !@cells
+          reload(1, false) if !@cells
           @max_rows = rows
           @meta_modified = true
         end
 
         # Number of columns including empty columns.
         def max_cols
-          reload() if !@cells
+          reload(1, false) if !@cells
           return @max_cols
         end
 
         # Updates number of columns.
         # Note that update is not sent to the server until you call save().
         def max_cols=(cols)
-          reload() if !@cells
+          reload(1, false) if !@cells
           @max_cols = cols
           @meta_modified = true
         end
 
         # Title of the worksheet (shown as tab label in Web interface).
         def title
-          reload() if !@title
+          reload(1, false) if !@title
           return @title
         end
 
         # Updates title of the worksheet.
         # Note that update is not sent to the server until you call save().
         def title=(title)
-          reload() if !@cells
+          reload(1, false) if !@cells
           @title = title
           @meta_modified = true
         end
 
         def cells #:nodoc:
-          reload() if !@cells
+          reload(1, false) if !@cells
           return @cells
         end
 
@@ -826,8 +831,19 @@ module GoogleSpreadsheet
 
         # Reloads content of the worksheets from the server.
         # Note that changes you made by []= is discarded if you haven't called save().
-        def reload()
-          doc = @session.request(:get, @cells_feed_url)
+        def reload(row = false, col = false)
+          if row #TODO add similar column based windowing eventually
+            unless @max_rows
+              doc = @session.request(:get, @cells_feed_url + "?min-row=1&max-row=1")
+              @max_rows = doc.css('gs|rowCount').text.to_i
+            end
+            @min_row = (row - 1) / @session.row_page_size
+            @windowing_options = "?min-row=#{@min_row * @session.row_page_size + 1}&max-row=#{[(@min_row + 1) * @session.row_page_size + 1, @max_rows].min}"
+            @row_loaded_pages << @min_row
+          else
+            @windowing_options = ""
+          end
+          doc = @session.request(:get, @cells_feed_url + @windowing_options)
           @max_rows = doc.css('gs|rowCount').text.to_i
           @max_cols = doc.css('gs|colCount').text.to_i
           @title = doc.css('feed > title')[0].text

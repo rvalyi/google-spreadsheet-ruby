@@ -6,11 +6,10 @@ require "test/unit"
 require "google_spreadsheet"
 require "highline"
 
-
 class TC_GoogleSpreadsheet < Test::Unit::TestCase
     
     def test_all()
-      
+
       puts("This test will create spreadsheets with your account, read/write them")
       puts("and finally delete them (if everything goes well).")
       account_path = File.join(File.dirname(__FILE__), "account.yaml")
@@ -33,6 +32,7 @@ class TC_GoogleSpreadsheet < Test::Unit::TestCase
       ss_title = "google-spreadsheet-ruby test " + Time.now.strftime("%Y-%m-%d-%H-%M-%S")
       ss = session.create_spreadsheet(ss_title)
       assert_equal(ss_title, ss.title)
+      session.row_page_size = 3
       
       ws = ss.worksheets[0]
       assert_equal(ss.worksheets_feed_url, ws.spreadsheet.worksheets_feed_url)
@@ -42,9 +42,11 @@ class TC_GoogleSpreadsheet < Test::Unit::TestCase
       ws[1, 1] = "3"
       ws[1, 2] = "5"
       ws[1, 3] = "=A1+B1"
+      ws[5, 1] = "5"
+      ws[10, 1] = "10"
       assert_equal(20, ws.max_rows)
       assert_equal(10, ws.max_cols)
-      assert_equal(1, ws.num_rows)
+      assert_equal(10, ws.num_rows)
       assert_equal(3, ws.num_cols)
       assert_equal("3", ws[1, 1])
       assert_equal("5", ws[1, 2])
@@ -53,7 +55,7 @@ class TC_GoogleSpreadsheet < Test::Unit::TestCase
       ws.reload()
       assert_equal(20, ws.max_rows)
       assert_equal(10, ws.max_cols)
-      assert_equal(1, ws.num_rows)
+      assert_equal(10, ws.num_rows)
       assert_equal(3, ws.num_cols)
       assert_equal("3", ws[1, 1])
       assert_equal("5", ws[1, 2])
@@ -62,7 +64,7 @@ class TC_GoogleSpreadsheet < Test::Unit::TestCase
         assert_equal(Encoding::UTF_8, ws[1, 1].encoding)
       end
       
-      assert_equal("3\t5\t8", ss.export_as_string("tsv", 0))
+      assert_equal("3\t5\t8\n\n\n\n5\n\n\n\n\n10", ss.export_as_string("tsv", 0))
       
       ss2 = session.spreadsheet_by_key(ss.key)
       assert_equal(ss_title, ss2.title)
@@ -70,6 +72,8 @@ class TC_GoogleSpreadsheet < Test::Unit::TestCase
       assert_equal(ss.human_url, ss2.human_url)
       assert_equal("hoge", ss2.worksheets[0].title)
       assert_equal("3", ss2.worksheets[0][1, 1])
+      assert_equal("5", ss2.worksheets[0][5, 1])
+      assert_equal("10", ss2.worksheets[0][10, 1])
       if RUBY_VERSION >= "1.9.0"
         assert_equal(Encoding::UTF_8, ss2.title.encoding)
         assert_equal(Encoding::UTF_8, ss2.worksheets[0].title.encoding)
